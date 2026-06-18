@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crossfire Effect Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { 
+            background-color: #0d0d0d; 
+            color: #ffffff; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            margin: 0;
+            padding: 0;
+        }
+        canvas { 
+            background-color: transparent; 
+            display: block; 
+            width: 100%; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            touch-action: none;
+        }
+        .panel-bg { background-color: #1a1a1a; }
+        .border-subtle { border-color: #2a2a2a; }
+        
+        .btn-emitter {
+            transition: all 0.2s;
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+        }
+        .btn-emitter:hover { background-color: #2a2a2a; border-color: #555; }
+        .btn-emitter:active { transform: scale(0.97); }
+        
+        .btn-reset {
+            transition: all 0.2s;
+            background-color: #222;
+        }
+        .btn-reset:hover { background-color: #333; }
+        .btn-reset:active { transform: scale(0.95); }
+    </style>
+</head>
+<body class="flex flex-col items-center min-h-screen py-8 px-4">
+
+    <div class="w-full max-w-4xl panel-bg rounded-2xl border border-subtle p-6 shadow-2xl">
+        
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl md:text-3xl font-medium tracking-wide">Crossfire Effect Simulator</h1>
+            <button onclick="resetSimulation()" class="btn-reset w-10 h-10 rounded-full flex justify-center items-center cursor-pointer" title="Reset Simulation">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Canvas -->
+        <div class="relative w-full mb-4">
+            <canvas id="simCanvas" width="800" height="400"></canvas>
+        </div>
+
+        <!-- Legend -->
+        <div class="flex flex-wrap items-center gap-4 bg-[#111111] border border-subtle rounded-full py-2 px-4 w-max mb-6 text-sm text-gray-300">
+            <div class="flex items-center gap-2">
+                <div class="relative w-3.5 h-3.5 rounded-full bg-[#3b82f6] flex items-center justify-center">
+                    <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+                </div>
+                <span>Targeted Cell</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3.5 h-3.5 rounded-full bg-[#4ade80]"></div>
+                <span>Non-Targeted Tumor</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3.5 h-3.5 rounded-full bg-[#fb7185]"></div>
+                <span>Healthy Cell</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <div class="w-3.5 h-3.5 rounded-full bg-[#334155]"></div>
+                <span>Destroyed</span>
+            </div>
+        </div>
+
+        <!-- Stats Panel -->
+        <div class="grid grid-cols-2 border-t border-b border-subtle py-4 mb-6 text-center">
+            <div>
+                <p class="text-gray-400 text-sm mb-1">Status</p>
+                <p id="statusText" class="text-white font-medium">Ready</p>
+            </div>
+            <div>
+                <p class="text-gray-400 text-sm mb-1">Cells Destroyed</p>
+                <p id="destroyedText" class="text-white font-medium font-mono text-lg">0</p>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <button onclick="triggerRadiation('beta')" class="btn-emitter text-white font-medium py-3 px-4 rounded-xl flex flex-col items-center">
+                <span class="text-base">Beta Emitter</span>
+                <span class="text-xs text-gray-400 mt-1">Long Range (High Crossfire)</span>
+            </button>
+            <button onclick="triggerRadiation('alpha')" class="btn-emitter text-white font-medium py-3 px-4 rounded-xl flex flex-col items-center">
+                <span class="text-base">Alpha Emitter</span>
+                <span class="text-xs text-gray-400 mt-1">Short Range (Low Crossfire)</span>
+            </button>
+            <button onclick="triggerRadiation('auger')" class="btn-emitter text-white font-medium py-3 px-4 rounded-xl flex flex-col items-center">
+                <span class="text-base">Auger Electron</span>
+                <span class="text-xs text-gray-400 mt-1">Sub-cellular (No Crossfire)</span>
+            </button>
+        </div>
+
+        <!-- Note -->
+        <div class="text-gray-400 text-xs md:text-sm leading-relaxed border-t border-subtle pt-4">
+            <p><strong>Note:</strong> This stimulates heterogeneous distribution of antigen on tumor cell where targeted cells (blue) are clustered and scattered unevenly within the main tumor mass (green), surrounded by healthy tissue (pink).</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('statusText');
+        const destroyedText = document.getElementById('destroyedText');
+
+        const width = canvas.width;
+        const height = canvas.height;
+        const cx = width / 2;
+        const cy = height / 2;
+
+        let cells = [];
+        let animationFrameId;
+        
+        // Radiation State
+        let isAnimating = false;
+        let currentRadius = 0;
+        let targetRadius = 0;
+        let currentIsotope = '';
+        let radiationColor = '';
+        let destroyedCount = 0;
+
+        // Grid Parameters
+        const cellSize = 5.5; // Radius of cells
+        const spacing = 15;   // Distance between cell centers
+
+        // Tumor Layout Parameters (Heterogeneous)
+        const mainTumorRadius = 145; // Big green circle
+        const targetClusters = [
+            { x: cx - 40, y: cy - 20, r: 45 }, // Big cluster 1
+            { x: cx + 55, y: cy + 30, r: 50 }, // Big cluster 2
+            { x: cx - 15, y: cy + 75, r: 25 }  // Small cluster
+        ];
+
+        // Colors matching the image and legend
+        const colors = {
+            targetedBg: '#3b82f6', // Blue
+            targetedDot: '#ffffff', // White dot
+            nontargeted: '#4ade80', // Green
+            healthy: '#fb7185',     // Pink/Salmon
+            dead: '#334155'         // Dark slate
+        };
+
+        function initCells() {
+            cells = [];
+            destroyedCount = 0;
+            updateStats('Ready', 0);
+            
+            // Calculate grid bounds
+            const cols = Math.floor(width / spacing);
+            const rows = Math.floor(height / spacing);
+            
+            // Offsets to center the grid on canvas
+            const offsetX = (width - ((cols - 1) * spacing)) / 2;
+            const offsetY = (height - ((rows - 1) * spacing)) / 2;
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    let x = offsetX + col * spacing;
+                    let y = offsetY + row * spacing;
+                    let distCenter = Math.hypot(x - cx, y - cy);
+                    
+                    let type = 'healthy';
+                    
+                    // Check if inside the main big tumor (green)
+                    if (distCenter <= mainTumorRadius) {
+                        type = 'nontargeted';
+                        
+                        // Check if inside the 3 specific targeted clusters (blue)
+                        for (let cluster of targetClusters) {
+                            let distCluster = Math.hypot(x - cluster.x, y - cluster.y);
+                            if (distCluster <= cluster.r) {
+                                type = 'targeted';
+                                break;
+                            }
+                        }
+
+                        // Scatter additional targeted cells randomly to increase heterogeneity
+                        if (type === 'nontargeted' && Math.random() < 0.08) {
+                            type = 'targeted';
+                        }
+                    }
+
+                    cells.push({
+                        x: x,
+                        y: y,
+                        baseType: type,
+                        isDead: false
+                    });
+                }
+            }
+            drawCanvas();
+        }
+
+        function drawCanvas() {
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw all Cells
+            for (let cell of cells) {
+                ctx.beginPath();
+                ctx.arc(cell.x, cell.y, cellSize, 0, Math.PI * 2);
+                
+                if (cell.isDead) {
+                    ctx.fillStyle = colors.dead;
+                    ctx.fill();
+                } else {
+                    if (cell.baseType === 'targeted') {
+                        // Draw blue base
+                        ctx.fillStyle = colors.targetedBg;
+                        ctx.fill();
+                        // Draw white inner dot
+                        ctx.beginPath();
+                        ctx.arc(cell.x, cell.y, cellSize * 0.35, 0, Math.PI * 2);
+                        ctx.fillStyle = colors.targetedDot;
+                        ctx.fill();
+                    } else {
+                        // Draw healthy or nontargeted
+                        ctx.fillStyle = colors[cell.baseType];
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+
+        function animate() {
+            if (!isAnimating) return;
+
+            // Expand radius smoothly
+            currentRadius += (targetRadius - currentRadius) * 0.08;
+
+            // Apply damage progressively as the radius expands
+            applyDamage(currentRadius);
+
+            // If animation reached max radius
+            if (targetRadius - currentRadius < 0.5) {
+                isAnimating = false;
+                currentRadius = targetRadius;
+                applyDamage(targetRadius); // Final pass
+                updateStats(`${currentIsotope.charAt(0).toUpperCase() + currentIsotope.slice(1)} Radiation Complete`, destroyedCount);
+            }
+
+            drawCanvas();
+
+            if (isAnimating) {
+                animationFrameId = requestAnimationFrame(animate);
+            }
+        }
+
+        function applyDamage(radius) {
+            let newlyDestroyed = 0;
+
+            for (let target of cells) {
+                if (target.baseType === 'targeted') {
+                    // Auger only destroys itself
+                    if (currentIsotope === 'auger') {
+                         if (!target.isDead) {
+                             target.isDead = true;
+                             newlyDestroyed++;
+                         }
+                         continue;
+                    }
+
+                    // Beta and Alpha destroy others in range progressively
+                    for (let cell of cells) {
+                        if (cell.isDead) continue; // optimization
+                        let dist = Math.hypot(cell.x - target.x, cell.y - target.y);
+                        // Add spacing/2 to catch edge cases nicely on the grid
+                        if (dist <= radius + (spacing/2)) {
+                            cell.isDead = true;
+                            newlyDestroyed++;
+                        }
+                    }
+                }
+            }
+
+            // Live update the count during the spreading animation
+            if (newlyDestroyed > 0) {
+                destroyedCount += newlyDestroyed;
+                destroyedText.innerText = destroyedCount;
+            }
+        }
+
+        function updateStats(status, count) {
+            statusText.innerText = status;
+            
+            // simple count animation
+            let currentDisplay = parseInt(destroyedText.innerText);
+            if (currentDisplay !== count) {
+                destroyedText.innerText = count;
+                destroyedText.classList.add('text-red-400');
+                setTimeout(() => destroyedText.classList.remove('text-red-400'), 300);
+            }
+        }
+
+        window.resetSimulation = function() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            isAnimating = false;
+            cells.forEach(cell => cell.isDead = false);
+            destroyedCount = 0;
+            currentRadius = 0;
+            updateStats('Ready', 0);
+            drawCanvas();
+        }
+
+        window.triggerRadiation = function(type) {
+            // Auto-reset before starting new emitter
+            resetSimulation();
+            
+            isAnimating = true;
+            currentIsotope = type;
+
+            updateStats(`${type.charAt(0).toUpperCase() + type.slice(1)} Radiation Active...`, 0);
+
+            // Set parameters based on isotope type using original logic ranges
+            if (type === 'beta') {
+                targetRadius = 65; // High crossfire
+            } else if (type === 'alpha') {
+                targetRadius = 24; // Short crossfire
+            } else if (type === 'auger') {
+                targetRadius = 4; // Sub-cellular
+            }
+
+            animate();
+        };
+
+        // Initialize on load
+        window.onload = initCells;
+
+    </script>
+</body>
+</html>
